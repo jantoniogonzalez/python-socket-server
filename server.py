@@ -25,7 +25,8 @@ while True:
     # client1.send_data(testhtml)
     # client1.close_socket()
 
-    clientsocket.recv(1024)
+    data = clientsocket.recv(1024).decode()
+    print("Client send:\n%s" % data)
     clientsocket.send('HTTP/1.0 200 OK\nContent-Type: text/html\n\n'.encode())
     clientsocket.send(testhtml.encode())
     clientsocket.close()
