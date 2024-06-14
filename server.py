@@ -1,24 +1,8 @@
 import socket
 from threading import *
+import client
 
-class client(Thread):
-    def __init__(self, socket, address):
-        Thread.__init__(self)
-        self.socket = socket
-        self.address = address
-        # Start thread
-        self.start()
-        self._stop_event = Event()
-    def run(self):
-        while 1:
-            print("Client send:\n%s" % self.socket.recv(1024).decode())
-    def stop(self):
-        self._stop_event.set()
-    def stopped(self):
-        return self._stop_event.is_set()
-
-
-port = 8080
+port = 8000
 host = "localhost"
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -27,18 +11,21 @@ server.bind((host, port))
 
 server.listen(5)
 
+testfile = open('test.html', 'r')
+testhtml = testfile.read()
+
 while True:
     (clientsocket, address) = server.accept()
 
     print("Got connection from", address)
 
-    client1 = client(socket=clientsocket, address=address)
-    client1.run()
-    message = "Thank you for connecting"
-    message_bytes = message.encode("ascii")
-    server.send("SUp mate".encode())
-    
-    client.stop()
-    clientsocket.close()
+    # client1 = client.client(socket=clientsocket, address=address)
+    # client1.run()
+    # client1.send_data('HTTP/1.0 200 OK\nContent-Type: text/html\n\n')
+    # client1.send_data(testhtml)
+    # client1.close_socket()
 
-    break
+    clientsocket.recv(1024)
+    clientsocket.send('HTTP/1.0 200 OK\nContent-Type: text/html\n\n'.encode())
+    clientsocket.send(testhtml.encode())
+    clientsocket.close()
