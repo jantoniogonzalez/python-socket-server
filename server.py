@@ -1,32 +1,31 @@
-import socket
-from threading import *
-import client
+import socket as s
 
-port = 8000
-host = "localhost"
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+PORT = 8000
 
-print("Initializing server with host %s and port %d \n" % (host, port))
-server.bind((host, port))
 
-server.listen(5)
+def main():
+    with s.socket(s.AF_INET, s.SOCK_STREAM) as socket:
+        socket = s.socket(s.AF_INET, s.SOCK_STREAM)
+        socket.bind(("", PORT))
+        socket.listen(1)
+        while True:
+            connection, addr = socket.accept()
+            with connection:
+                chunks = []
+                chunk = connection.recv(1024).decode()
+                chunks.append(chunk)
+                while "\r\n" not in chunk:
+                    chunk = connection.recv(1024).decode()
+                    print(chunk)
+                    chunks.append(chunk)
 
-testfile = open('test.html', 'r')
-testhtml = testfile.read()
+                resStr = "".join(chunks)
 
-while True:
-    (clientsocket, address) = server.accept()
+                res = "HTTP/1.1 200 OK\r\n\r\n<h1>Test</h1>"
+                connection.sendall(res.encode())
 
-    print("Got connection from", address)
+                print("finished sending!")
 
-    # client1 = client.client(socket=clientsocket, address=address)
-    # client1.run()
-    # client1.send_data('HTTP/1.0 200 OK\nContent-Type: text/html\n\n')
-    # client1.send_data(testhtml)
-    # client1.close_socket()
 
-    data = clientsocket.recv(1024).decode()
-    print("Client send:\n%s" % data)
-    clientsocket.send('HTTP/1.0 200 OK\nContent-Type: text/html\n\n'.encode())
-    clientsocket.send(testhtml.encode())
-    clientsocket.close()
+if __name__ == "__main__":
+    main()
