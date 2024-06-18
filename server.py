@@ -1,26 +1,34 @@
 import socket
 from threading import *
+from dataclasses import dataclass
 import client
 
+@dataclass
+class Route:
+    method: str
+    endpoint: str
+
 class Server():
-    def __init__(self, socket, routes = [('GET', '/test.html', 'test.html')]):
-        # routes = [("METHOD", "ENDPOINT")]
+    def __init__(self, socket, routes = [Route("GET", "/test.html")]):
+        # routes = list of Route
         self.routes = routes
         self.socket = socket
+        self.connections = {}
 
-    def initialize_socket(self, host, port, connections):
+    def initialize_socket(self, host, port, num_connections):
         self.socket.bind((host, port))
-        self.socket.listen(connections)
+        self.socket.listen(num_connections)
 
     def accept_connection(self):
         connection, addr =  self.socket.accept()
         return connection, addr
     
     def add_route(self, route):
-        self.routes.appen(route)
+        self.routes.append(route)
 
-    def get_routes(self):
-        return self.routes
+
+def example_handler(file):
+    return file.encode()
 
 # Params: request string
 # Returns: request_headers list
@@ -57,11 +65,24 @@ def parse_http_method(http_req):
         return "", ""
     return http_method, endpoint
 
+# Params: http_method string, endpoint string, routes list[tuple]
+# Returns: bool
+# Checks if route_exists
 def route_exists(http_method, endpoint, routes):
     for route in routes:
-        if route[0] == http_method and route[1] == endpoint:
+        if route.method == http_method and route.endpoint == endpoint:
             return True
     return False
+
+# Use when route_exists returns false
+def check_inexistent_route(endpoint, routes):
+    for route in routes:
+        if route.endpoint == endpoint:
+            return 400
+    return 404
+
+# Use when route_exists return true
+
 
 def main():
     PORT = 8000
@@ -77,6 +98,7 @@ def main():
 
     while True:
         (connection, address) = server.accept_connection()
+        print(server.__getattribute__("connections"))
 
         print("Got connection from", address)
 
@@ -86,25 +108,49 @@ def main():
         # client1.send_data(testhtml)
         # client1.close_socket()
 
-        # Request
-        request = connection.recv(1024).decode()
-        print("Client send:\n%s" % request)
+        
+        with connection:
+            # Request
+            chunks = []
+            chunk = connection.recv(1024).decode()
+            chunks.append(chunk)           
+            while "\r\n" not in chunk:
+                chunk = connection.recv(1024).decode()
+                chunks.append(chunk)
+            request = "".join(chunks)
 
-        # Read request
-        request_headers = parse_request(request)
-        http_method, endpoint = parse_http_method(request_headers[0])
-        if not http_method and not endpoint:
-            connection.close()
-            continue
-        print("Method: %s\nEndpoint: %s\n" % (http_method, endpoint))
+            print("Client send:\n%s" % request)
 
-        parsed_headers = parse_headers(request_headers)
-        print("Dictionary with headers: \n%s\n" % parsed_headers)
+            # Read request
+            request_headers = parse_request(request)
+            http_method, endpoint = parse_http_method(request_headers[0])
+            if not http_method and not endpoint:
+                connection.close()
+                continue
+            print("Method: %s\nEndpoint: %s\n" % (http_method, endpoint))
+
+            routes_example = [Route("GET", "/hola"), Route("GET", "/")]
+            if not route_exists(http_method, endpoint, routes_example):
+                error_code = check_inexistent_route(endpoint, routes_example)
+                print("Got error code %d\n from check_inexistent_route" % error_code)
+            else:
+                print("No errors... yet!")
+
+            parsed_headers = parse_headers(request_headers)
+            print("Dictionary with headers: \n%s\n" % parsed_headers)
 
 
-        # Response
-        connection.send('HTTP/1.0 200 OK\nContent-Type: text/html\n\n'.encode())
-        connection.send(testhtml.encode())
+            # Response
+            # Set the Last-Modified response header to get the If-Modified-Since request header back
+            connection.send('HTTP/1.0 200 OK\nContent-Type: text/html\nLast-Modified: Tue, 18 Jun 2024 00:26:59 GMT\n'.encode())
+            connection.send(testhtml.encode())
 
 if __name__ == '__main__':
     main()
+
+'''
+1. Check Route
+If Route Exists:
+    2. Call "handler"
+    3. Check cache
+'''
