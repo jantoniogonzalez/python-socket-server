@@ -14,16 +14,13 @@ class Route:
 
 
 class Server:
-    def __init__(self, socket):
+    def __init__(self):
         self.routes = []
-        # routes = list of Route
-        self.socket = socket
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    def initialize_socket(self, host, port, num_connections):
+    def listen(self, host, port, num_connections):
         self.socket.bind((host, port))
         self.socket.listen(num_connections)
-
-    def accept_connection(self):
         while True:
             connection, addr = self.socket.accept()
             with connection:
@@ -56,10 +53,12 @@ class Server:
                 )
 
                 if len(matchedRoutes) == 0:
-                    connection.send()  # 404 not done yet
-
-                matchedRoute = matchedRoutes[0]
-                matchedRoute.handler(connection, request_headers)
+                    connection.send(
+                        "HTTP/1.1 404 Not Found\nContent-Type: text/html\n\r\n\rNot Found".encode()
+                    )
+                else:
+                    matchedRoute = matchedRoutes[0]
+                    matchedRoute.handler(connection, request_headers)
 
     def add_route(self, method, endpoint: str, callback):
         if endpoint[-1] == "/":
@@ -114,27 +113,32 @@ def parse_http_method(http_req):
 def main():
     PORT = 8000
     HOST = "localhost"
-    server = Server(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+    server = Server()
 
     print("Initializing server with host %s and port %d \n" % (HOST, PORT))
-    server.initialize_socket(HOST, PORT, 5)
 
     testfile = open("test.html", "r")
     testhtml = testfile.read()
     testfile.close()
 
     def index(con, headers):
-        # Response
         # Set the Last-Modified response header to get the If-Modified-Since request header back
-        con.send(
-            "HTTP/1.0 200 OK\nContent-Type: text/html\nLast-Modified: Tue, 18 Jun 2024 00:26:59 GMT\n".encode()
-        )
-        con.send(testhtml.encode())
+        if "If-Modified-Since" in headers:
+            con.sendall("HTTP/1.1 304 Not Modified\n\r\n\rHome Page".encode())
+        else:
+            con.sendall("HTTP/1.1 200 OK\n\r\n\rHome Page".encode())
+
+    def index_post(con, headers):
+        con.sendall("HTTP/1.1 200 OK\n\r\n\rSucessfully Posted".encode())
+
+    def internal(con, headers):
+        con.sendall("HTTP/1.1 403 Forbidden\n\r\n\rForbidden".encode())
 
     server.add_route("GET", "/", index)
-    server.add_route("GET", "/unprotected", index)
+    server.add_route("POST", "/", index_post)
+    server.add_route("GET", "/internal", internal)
 
-    server.accept_connection()
+    server.listen(HOST, PORT, 5)
 
 
 if __name__ == "__main__":
@@ -146,4 +150,3 @@ If Route Exists:
     2. Call "handler"
     3. Check cache
 """
-
