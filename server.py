@@ -1,4 +1,6 @@
 import socket
+import os
+import time
 from dataclasses import dataclass
 from threading import *
 from typing import Callable
@@ -36,29 +38,41 @@ class Server:
                 print("Client send:\n%s" % request)
 
                 # Read request
-                request_headers = parse_request(request)
-                http_method, endpoint = parse_http_method(request_headers[0])
-                parsed_headers = parse_headers(request_headers)
-                print("Dictionary with headers: \n%s\n" % parsed_headers)
+                request_headers_list, request_headers_dict = parse_request(request)
+                http_method, endpoint = parse_http_method(request_headers_list[0])
+                print("Headers: \n%s\n" % request_headers_dict)
                 if not http_method and not endpoint:
                     connection.close()
                     continue
                 print("Method: %s\nEndpoint: %s\n" % (http_method, endpoint))
 
-                matchedRoutes = list(
+                # Check for matching endpoints
+                matchedEndpoints = list(
                     filter(
-                        lambda x: x.method == http_method and x.endpoint == endpoint,
+                        lambda x: x.endpoint == endpoint,
                         self.routes,
                     )
-                )
-
-                if len(matchedRoutes) == 0:
+                )  
+                if len(matchedEndpoints) == 0:
                     connection.send(
                         "HTTP/1.1 404 Not Found\nContent-Type: text/html\n\r\n\rNot Found".encode()
                     )
+                    continue
+
+                # Check for matching routes
+                matchedRoutes = list(
+                    filter(
+                        lambda x: x.endpoint == endpoint and x.method == http_method,
+                        matchedEndpoints,
+                    )
+                )
+                if len(matchedRoutes) == 0:
+                    connection.send(
+                        "HTTP/1.1 400 Bad Request\nContent-Type: text/html\n\r\n\rBad Request".encode()
+                    )
                 else:
                     matchedRoute = matchedRoutes[0]
-                    matchedRoute.handler(connection, request_headers)
+                    matchedRoute.handler(connection, request_headers_dict)
 
     def add_route(self, method, endpoint: str, callback):
         if endpoint[-1] == "/":
@@ -76,8 +90,8 @@ def example_handler(file):
 def parse_request(request):
     request_headers = request.split("\r\n")
     if len(request_headers) < 1:
-        return []
-    return request_headers
+        return [], {}
+    return request_headers, parse_headers(request_headers)
 
 
 # Params: headers list[string]
@@ -90,6 +104,18 @@ def parse_headers(headers):
         if len(parsed_header) == 2:
             parsed_headers[parsed_header[0]] = parsed_header[1]
     return parsed_headers
+
+def open_file(filepath):
+    last_m= os.path.getmtime(filepath)
+    last_modified = time.ctime(last_m)
+
+    file = open(filepath, "r")
+    readfile = file.read()
+    file.close()
+
+    print("last modifieed %f %s" % (last_m, last_modified))
+
+    return readfile, last_modified
 
 
 # Params: http_req string
@@ -117,16 +143,15 @@ def main():
 
     print("Initializing server with host %s and port %d \n" % (HOST, PORT))
 
-    testfile = open("test.html", "r")
-    testhtml = testfile.read()
-    testfile.close()
-
     def index(con, headers):
-        # Set the Last-Modified response header to get the If-Modified-Since request header back
-        if "If-Modified-Since" in headers:
+        file, last_modified = open_file("test.html")
+        # Compare when file was last modified to the if-modified-since header
+        if "If-Modified-Since" in headers and time.strptime(headers["If-Modified-Since"]) >= time.strptime(last_modified):
             con.sendall("HTTP/1.1 304 Not Modified\n\r\n\rHome Page".encode())
         else:
-            con.sendall("HTTP/1.1 200 OK\n\r\n\rHome Page".encode())
+            # Set the Last-Modified response header to get the If-Modified-Since request header back
+            resp_header = "HTTP/1.1 200 OK\nLast-Modified: %s \n\r\n\rHome Page" % last_modified
+            con.sendall(resp_header.encode())
 
     def index_post(con, headers):
         con.sendall("HTTP/1.1 200 OK\n\r\n\rSucessfully Posted".encode())
