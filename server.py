@@ -15,6 +15,11 @@ class Route:
     handler: Callable[..., None]
 
 
+@dataclass
+class Cached_File:
+    content: str
+    last_modified: str
+
 class Server:
     def __init__(self):
         self.routes = []
@@ -26,20 +31,10 @@ class Server:
         while True:
             connection, addr = self.socket.accept()
             with connection:
-                # Request
-                chunks = []
-                chunk = connection.recv(1024).decode()
-                chunks.append(chunk)
-                while "\r\n" not in chunk:
-                    chunk = connection.recv(1024).decode()
-                    chunks.append(chunk)
-                request = "".join(chunks)
+                request = self.read_request(connection)
 
-                print("Client send:\n%s" % request)
-
-                # Read request
-                request_headers_list, request_headers_dict = parse_request(request)
-                http_method, endpoint = parse_http_method(request_headers_list[0])
+                request_headers_list, request_headers_dict = self.__parse_request(request)
+                http_method, endpoint = self.__parse_http_method(request_headers_list[0])
                 print("Headers: \n%s\n" % request_headers_dict)
                 if not http_method and not endpoint:
                     connection.close()
@@ -74,67 +69,118 @@ class Server:
                     matchedRoute = matchedRoutes[0]
                     matchedRoute.handler(connection, request_headers_dict)
 
+    def read_request(self, connection):
+        # Request
+        chunks = []
+        chunk = connection.recv(1024).decode()
+        chunks.append(chunk)
+        while "\r\n" not in chunk:
+            chunk = connection.recv(1024).decode()
+            chunks.append(chunk)
+        request = "".join(chunks)
+        print("Client send:\n%s" % request)
+        return request
+    
     def add_route(self, method, endpoint: str, callback):
         if endpoint[-1] == "/":
             endpoint = endpoint[:-1]
         self.routes.append(Route(method, endpoint, callback))
+    
+    def open_file(self, filepath):
+        last_m= os.path.getmtime(filepath)
+        last_modified = time.ctime(last_m)
+
+        file = open(filepath, "r")
+        readfile = file.read()
+        file.close()
+
+        print("last modifieed %f %s" % (last_m, last_modified))
+
+        return readfile, last_modified
+    
+    def check_last_modified(self, cache_last_modified, filepath):
+        last_m = os.path.getmtime(filepath)
+        last_modified = time.ctime(last_m)
+        return time.strptime(last_modified) > time.strptime(cache_last_modified)
+        # Compare datetimes
+    
+    # Params: request string
+    # Returns: request_headers list
+    # Splits headers based on \r\n
+    def __parse_request(self, request):
+        request_headers = request.split("\r\n")
+        if len(request_headers) < 1:
+            return [], {}
+        return request_headers, self.__parse_headers(request_headers)
 
 
-def example_handler(file):
-    return file.encode()
+    # Params: headers list[string]
+    # Returns: parsed_headers dict
+    # Splits header lines
+    def __parse_headers(self, headers):
+        parsed_headers = {}
+        for header in headers:
+            parsed_header = header.split(": ")
+            if len(parsed_header) == 2:
+                parsed_headers[parsed_header[0]] = parsed_header[1]
+        return parsed_headers
 
 
-# Params: request string
-# Returns: request_headers list
-# Splits headers based on \r\n
-def parse_request(request):
-    request_headers = request.split("\r\n")
-    if len(request_headers) < 1:
-        return [], {}
-    return request_headers, parse_headers(request_headers)
+    # Params: http_req string
+    # Returns: http_method string, endpoint string
+    # Parses request line to find method and endpoint
+    def __parse_http_method(self, http_req):
+        if type(http_req) != str:
+            return "", ""
+        parsed_http_request = http_req.split(" ")
+        if len(parsed_http_request) < 2:
+            return "", ""
+        # Method
+        http_method, endpoint = parsed_http_request[0], parsed_http_request[1]
+        if endpoint == "/favicon.ico":
+            return "", ""
+        if endpoint[-1] == "/":
+            endpoint = endpoint[:-1]
+        return http_method, endpoint
 
+class Proxy_Server(Server):
+    def __init__(self):
+        self.files = {}
+        self.routes = []
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.origin_server = Server()
+        self.origin_host = "localhost"
+        self.origin_port = 8000
 
-# Params: headers list[string]
-# Returns: parsed_headers dict
-# Splits header lines
-def parse_headers(headers):
-    parsed_headers = {}
-    for header in headers:
-        parsed_header = header.split(": ")
-        if len(parsed_header) == 2:
-            parsed_headers[parsed_header[0]] = parsed_header[1]
-    return parsed_headers
+    def start_origin_server(self, host, port, num_connections):
+        self.origin_port = port
+        self.origin_host = host
+        self.origin_server.listen(host, port, num_connections)
 
-def open_file(filepath):
-    last_m= os.path.getmtime(filepath)
-    last_modified = time.ctime(last_m)
+    def find_file(self, filepath):
+        readfile, last_modified
+        if not self.files[filepath]:
+            # Request file from origin server
+            readfile, last_modified = self.origin_server.open_file(filepath)
+            # Cache the file
+        else:
+            # Here we would make a request to our actual origin server
+            self.socket.connect((self.origin_host, self.origin_port))
+            # Check if last_modified corresponds to actual last time it was modified
+            self.socket.send(self.files[filepath].last_modified)
+            return
 
-    file = open(filepath, "r")
-    readfile = file.read()
-    file.close()
+def main_2():
+    PROXY_PORT = 3000
+    PROXY_HOST = "localhost"
+    proxy_server = Proxy_Server()
+    # Start proxy
+    proxy_server.listen(PROXY_HOST, PROXY_PORT, 5)
 
-    print("last modifieed %f %s" % (last_m, last_modified))
-
-    return readfile, last_modified
-
-
-# Params: http_req string
-# Returns: http_method string, endpoint string
-# Parses request line to find method and endpoint
-def parse_http_method(http_req):
-    if type(http_req) != str:
-        return "", ""
-    parsed_http_request = http_req.split(" ")
-    if len(parsed_http_request) < 2:
-        return "", ""
-    # Method
-    http_method, endpoint = parsed_http_request[0], parsed_http_request[1]
-    if endpoint == "/favicon.ico":
-        return "", ""
-    if endpoint[-1] == "/":
-        endpoint = endpoint[:-1]
-    return http_method, endpoint
-
+    ORIGIN_PORT = 8000
+    ORIGIN_HOST = "localhost"
+    # Start origin
+    proxy_server.start_origin_server(ORIGIN_HOST, ORIGIN_PORT, 5)
 
 def main():
     PORT = 8000
@@ -144,7 +190,7 @@ def main():
     print("Initializing server with host %s and port %d \n" % (HOST, PORT))
 
     def index(con, headers):
-        file, last_modified = open_file("test.html")
+        file, last_modified = server.open_file("test.html")
         # Compare when file was last modified to the if-modified-since header
         if "If-Modified-Since" in headers and time.strptime(headers["If-Modified-Since"]) >= time.strptime(last_modified):
             con.sendall("HTTP/1.1 304 Not Modified\n\r\n\rHome Page".encode())
