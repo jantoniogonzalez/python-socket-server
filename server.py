@@ -8,6 +8,15 @@ from typing import Callable
 import client
 
 
+HTTP_CODES ={
+    200: "OK",
+    304: "Not Modified",
+    400: "Bad Request",
+    403: "Forbidden",
+    404: "Not Found",
+    500: "Internal Server Error",
+}
+
 @dataclass
 class Route:
     method: str
@@ -49,9 +58,8 @@ class Server:
                     )
                 )  
                 if len(matchedEndpoints) == 0:
-                    connection.send(
-                        "HTTP/1.1 404 Not Found\nContent-Type: text/html\n\r\n\rNot Found".encode()
-                    )
+                    response = self.generate_response(404)
+                    connection.send(response)
                     continue
 
                 # Check for matching routes
@@ -62,9 +70,8 @@ class Server:
                     )
                 )
                 if len(matchedRoutes) == 0:
-                    connection.send(
-                        "HTTP/1.1 400 Bad Request\nContent-Type: text/html\n\r\n\rBad Request".encode()
-                    )
+                    response = self.generate_response(400)
+                    connection.send(response)
                 else:
                     matchedRoute = matchedRoutes[0]
                     matchedRoute.handler(connection, request_headers_dict)
@@ -101,9 +108,23 @@ class Server:
     def check_modified_header(self, cache_last_modified, filepath):
         last_m = os.path.getmtime(filepath)
         last_modified = time.ctime(last_m)
-        return time.strptime(last_modified) > time.strptime(cache_last_modified)
         # Compare datetimes
+        return time.strptime(last_modified) > time.strptime(cache_last_modified)
     
+    def generate_response(self, code, content="", additional_headers={"Content-Type": "text/html"}):
+        if not HTTP_CODES[code]:
+            code = 500
+            content=""
+            additional_headers={"Content-Type": "text/html"}
+        response = "HTTP/1.1 %d %s\n" % (code, HTTP_CODES[code])
+        for key in additional_headers:
+            response += "%s: %s\r\n" % (key, additional_headers[key])
+        if not content:
+            response += "\r\n%s" % (HTTP_CODES[code])
+        else:
+            response += "\r\n%s" % (content)
+        return response.encode()
+
     # Params: request string
     # Returns: request_headers list
     # Splits headers based on \r\n
