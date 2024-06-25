@@ -98,7 +98,7 @@ class Server:
 
         return readfile, last_modified
     
-    def check_last_modified(self, cache_last_modified, filepath):
+    def check_modified_header(self, cache_last_modified, filepath):
         last_m = os.path.getmtime(filepath)
         last_modified = time.ctime(last_m)
         return time.strptime(last_modified) > time.strptime(cache_last_modified)
@@ -193,7 +193,7 @@ def main():
         file, last_modified = server.open_file("test.html")
         # Compare when file was last modified to the if-modified-since header
         if "If-Modified-Since" in headers and time.strptime(headers["If-Modified-Since"]) >= time.strptime(last_modified):
-            con.sendall("HTTP/1.1 304 Not Modified\n\r\n\rHome Page".encode())
+            con.sendall("HTTP/1.1 304 Not Modified\n\r\n\r".encode())
         else:
             # Set the Last-Modified response header to get the If-Modified-Since request header back
             resp_header = "HTTP/1.1 200 OK\nLast-Modified: %s \n\r\n\rHome Page" % last_modified
@@ -220,4 +220,10 @@ if __name__ == "__main__":
 If Route Exists:
     2. Call "handler"
     3. Check cache
+
+Proxy Server (need to change):
+Basically will just relay the request from the client
+The server will check the modified-since tag, and return a 304 code or a 200 with the appropriate file
+The proxy will cache the file if one has been sent
+Proxy will send back the response to the client
 """
