@@ -169,14 +169,27 @@ class Proxy_Server(Server):
         self.files = {}
         self.routes = []
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.origin_server = Server()
-        self.origin_host = "localhost"
         self.origin_port = 8000
+        self.origin_host = "localhost"
 
-    def start_origin_server(self, host, port, num_connections):
-        self.origin_port = port
-        self.origin_host = host
-        self.origin_server.listen(host, port, num_connections)
+    def listen(self, host, port, num_connections):
+        self.socket.bind((host, port))
+        self.socket.listen(num_connections)
+        while True:
+            connection, addr = self.socket.accept()
+            with connection:
+                request = self.read_request(connection)
+
+                request_headers_list, request_headers_dict = self.__parse_request(request)
+                http_method, endpoint = self.__parse_http_method(request_headers_list[0])
+                print("Headers: \n%s\n" % request_headers_dict)
+                if not http_method and not endpoint:
+                    connection.close()
+                    continue
+                print("Method: %s\nEndpoint: %s\n" % (http_method, endpoint))
+
+                self.socket.connect((self.origin_host, self.origin_port))
+                self.socket.send(request)
 
     def find_file(self, filepath):
         readfile, last_modified
@@ -200,8 +213,8 @@ def main_2():
 
     ORIGIN_PORT = 8000
     ORIGIN_HOST = "localhost"
-    # Start origin
-    proxy_server.start_origin_server(ORIGIN_HOST, ORIGIN_PORT, 5)
+    server = Server()
+
 
 def main():
     PORT = 8000
