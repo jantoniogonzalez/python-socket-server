@@ -75,6 +75,7 @@ class Server:
                 else:
                     matchedRoute = matchedRoutes[0]
                     matchedRoute.handler(connection, request_headers_dict)
+                connection.close()
 
     def read_request(self, connection):
         # Request
@@ -168,7 +169,7 @@ class Server:
 
 def main():
     PORT = 8000
-    HOST = "localhost"
+    HOST = socket.gethostname()
     server = Server()
 
     print("Initializing server with host %s and port %d \n" % (HOST, PORT))
@@ -176,6 +177,7 @@ def main():
     def index(con, headers):
         file, last_modified = server.open_file("test.html")
         # Compare when file was last modified to the if-modified-since header
+        print("SENDING FILE")
         if "If-Modified-Since" in headers and time.strptime(headers["If-Modified-Since"]) >= time.strptime(last_modified):
             con.sendall("HTTP/1.1 304 Not Modified\n\r\n\r".encode())
         else:

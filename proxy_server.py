@@ -6,18 +6,71 @@ from dataclasses import dataclass
 from threading import *
 from typing import Callable
 
-class Proxy_Server(server.Server):
+class Proxy_Server():
     def __init__(self):
         self.files = {}
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.origin_port = 8000
-        self.origin_host = "localhost"
+        self.origin_host = socket.gethostname()
+
+    def read_request(self, connection):
+        # Request
+        print("READING REQUEST!!!!")
+        print(connection)
+        chunks = []
+        chunk = connection.recv(1024).decode()
+        chunks.append(chunk)
+        while "\r\n" not in chunk:
+            chunk = connection.recv(1024).decode()
+            chunks.append(chunk)
+        request = "".join(chunks)
+        print("Client send:\n%s" % request)
+        return request
+    
+    # Params: request string
+    # Returns: request_headers list
+    # Splits headers based on \r\n
+    def parse_request(self, request):
+        request_headers = request.split("\r\n")
+        if len(request_headers) < 1:
+            return [], {}
+        return request_headers, self.parse_headers(request_headers)
+
+
+    # Params: headers list[string]
+    # Returns: parsed_headers dict
+    # Splits header lines
+    def parse_headers(self, headers):
+        parsed_headers = {}
+        for header in headers:
+            parsed_header = header.split(": ")
+            if len(parsed_header) == 2:
+                parsed_headers[parsed_header[0]] = parsed_header[1]
+        return parsed_headers
+
+
+    # Params: http_req string
+    # Returns: http_method string, endpoint string
+    # Parses request line to find method and endpoint
+    def parse_http_method(self, http_req):
+        if type(http_req) != str:
+            return "", ""
+        parsed_http_request = http_req.split(" ")
+        if len(parsed_http_request) < 2:
+            return "", ""
+        # Method
+        http_method, endpoint = parsed_http_request[0], parsed_http_request[1]
+        if endpoint == "/favicon.ico":
+            return "", ""
+        if endpoint[-1] == "/":
+            endpoint = endpoint[:-1]
+        return http_method, endpoint
 
     def listen_proxy(self, host, port, num_connections):
         self.socket.bind((host, port))
         self.socket.listen(num_connections)
-        connection, addr = self.socket.accept()
         while True:
+            connection, addr = self.socket.accept()
             print("GOT CONNECTION IN PROXY SERVER")
             print("REQUEST FROM PROXY")
             request = self.read_request(connection)
@@ -44,6 +97,7 @@ class Proxy_Server(server.Server):
             response = "".join(chunks)
             print("Origin server sent:\n%s" % response)
             client_socket.close()
+            print("SENDING RESPONSE TO BROWSER")
             connection.sendall(response.encode())
 
     def connect_origin(self, request):
