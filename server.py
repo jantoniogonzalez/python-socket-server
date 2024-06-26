@@ -69,6 +69,7 @@ class Server:
                 else:
                     matchedRoute = matchedRoutes[0]
                     matchedRoute.handler(connection, request_headers_dict)
+                print("CLOSING CONNECTION")
                 connection.close()
 
     def read_request(self, connection):
