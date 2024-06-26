@@ -116,7 +116,7 @@ class Server:
         response = "HTTP/1.1 %d %s\n" % (code, HTTP_CODES[code])
         for key in additional_headers:
             response += "%s: %s\r\n" % (key, additional_headers[key])
-        if not content:
+        if not content and code != 304:
             response += "\r\n%s" % (HTTP_CODES[code])
         else:
             response += "\r\n%s" % (content)
@@ -168,16 +168,25 @@ def main():
 
     print("Initializing server with host %s and port %d \n" % (HOST, PORT))
 
-    def index(con, headers):
-        file, last_modified = server.open_file("test.html")
+    def index(con, headers):     
         # Compare when file was last modified to the if-modified-since header
         print("SENDING FILE")
-        if "If-Modified-Since" in headers and time.strptime(headers["If-Modified-Since"]) >= time.strptime(last_modified):
-            con.sendall("HTTP/1.1 304 Not Modified\n\r\n\r".encode())
-        else:
+        if "If-Modified-Since" in headers:
+            last_m= os.path.getmtime("test.html")
+            last_modified = time.ctime(last_m)
+            if time.strptime(headers["If-Modified-Since"]) >= time.strptime(last_modified):
+                response = server.generate_response(304)
+                con.sendall(response)
+                return
             # Set the Last-Modified response header to get the If-Modified-Since request header back
-            resp_header = "HTTP/1.1 200 OK\nLast-Modified: %s \n\r\n\rHome Page" % last_modified
-            con.sendall(resp_header.encode())
+        file, last_modified = server.open_file("test.html")
+        response = server.generate_response(200, file, {"Content-Type": "text/html", "Last-Modified": last_modified})
+        con.sendall(response)
+
+    def protected(con, headers):
+        file, last_modified = server.open_file("protected.html")
+        response = server.generate_response(200, file, {"Content-Type": "text/html"})
+        con.sendall(response)
 
     def index_post(con, headers):
         con.sendall("HTTP/1.1 200 OK\n\r\n\rSucessfully Posted".encode())
@@ -188,6 +197,7 @@ def main():
     server.add_route("GET", "/", index)
     server.add_route("POST", "/", index_post)
     server.add_route("GET", "/internal", internal)
+    server.add_route("GET", "/protected", protected)
 
     # t_origin = threading.Thread(target=server.listen, args=(HOST, PORT, 5))
     # # Start proxy

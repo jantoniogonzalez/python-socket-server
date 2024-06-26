@@ -2,6 +2,7 @@ import server
 import socket
 import os
 import time
+import string
 from dataclasses import dataclass
 from threading import *
 from typing import Callable
@@ -21,7 +22,6 @@ class Proxy_Server():
     def read_request(self, connection):
         # Request
         print("READING REQUEST!!!!")
-        print(connection)
         chunks = []
         chunk = connection.recv(1024).decode()
         chunks.append(chunk)
@@ -76,8 +76,7 @@ class Proxy_Server():
         self.socket.listen(num_connections)
         while True:
             connection, addr = self.socket.accept()
-            print("GOT CONNECTION IN PROXY SERVER")
-            print("REQUEST FROM PROXY")
+            print("REQUEST TO PROXY")
             request = self.read_request(connection)
 
             request_headers_list, request_headers_dict = self.parse_request(request)
@@ -87,6 +86,7 @@ class Proxy_Server():
                 connection.close()
                 continue
             print("Method: %s\nEndpoint: %s\n" % (http_method, endpoint))
+            # Attach if-modified-since header
             request = self.conditional_get(http_method, endpoint, request)
 
             # Send req to origin
@@ -104,6 +104,10 @@ class Proxy_Server():
             # Cache the file from response
             print("Origin server sent:\n%s" % response)
             client_socket.close()
+            if self.has_not_modified_header(response) and (http_method, endpoint) in self.files:
+                response += self.files[(http_method, endpoint)].content
+            else:
+                self.cache_file(response, http_method, endpoint)
             connection.sendall(response.encode())
 
     def connect_origin(self, request):
@@ -122,22 +126,31 @@ class Proxy_Server():
             chunk = client_socket.recv(1024).decode()
             chunks.append(chunk)
         response = "".join(chunks)
+
         print("Origin server sent:\n%s" % response.decode())
         client_socket.close()
         return response
 
     def conditional_get(self, http_method, endpoint, request):
-        if not self.files[(http_method, endpoint)]:
+        if (http_method, endpoint) not in self.files:
             return request
         else:
             request+="\r\nIf-Modified-Since: %s" % self.files[(http_method, endpoint)].last_modified
             return request
         
+    def has_not_modified_header(self, response):
+        response_body = response.split("\r\n\r\n")       
+        return "304" in response_body[0]
+
     def cache_file(self, response, http_method, endpoint):
         response_body = response.split("\r\n\r\n")
+        _, response_headers_dict = self.parse_request(response_body[0])
+        if "Last-Modified" not in response_headers_dict:
+            return
+        # Only cache files that have the last-modified header
         new_file = Cached_File
         new_file.content = response_body[1]
-        new_file.last_modified = "" # Get from last_modified header sent from origin server
+        new_file.last_modified = response_headers_dict["Last-Modified"]
         self.files[(http_method, endpoint)] = new_file # idk if you can actually do this
         
 def main():
