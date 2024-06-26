@@ -6,6 +6,11 @@ from dataclasses import dataclass
 from threading import *
 from typing import Callable
 
+@dataclass
+class Cached_File:
+    content: str
+    last_modified: str
+
 class Proxy_Server():
     def __init__(self):
         self.files = {}
@@ -82,12 +87,13 @@ class Proxy_Server():
                 connection.close()
                 continue
             print("Method: %s\nEndpoint: %s\n" % (http_method, endpoint))
+            request = self.conditional_get(http_method, endpoint, request)
 
             # Send req to origin
             client_socket = socket.socket()
             client_socket.connect((self.origin_host, self.origin_port))
             client_socket.send(request.encode())
-            print("RECEIVING RESPONSE")
+            print("RECEIVING ORIGIN RESPONSE")
             chunks = []
             chunk = client_socket.recv(1024).decode()
             chunks.append(chunk)
@@ -95,9 +101,9 @@ class Proxy_Server():
                 chunk = client_socket.recv(1024).decode()
                 chunks.append(chunk)
             response = "".join(chunks)
+            # Cache the file from response
             print("Origin server sent:\n%s" % response)
             client_socket.close()
-            print("SENDING RESPONSE TO BROWSER")
             connection.sendall(response.encode())
 
     def connect_origin(self, request):
@@ -120,18 +126,19 @@ class Proxy_Server():
         client_socket.close()
         return response
 
-    def find_file(self, filepath):
-        readfile, last_modified
-        if not self.files[filepath]:
-            # Request file from origin server
-            readfile, last_modified = self.origin_server.open_file(filepath)
-            # Cache the file
+    def conditional_get(self, http_method, endpoint, request):
+        if not self.files[(http_method, endpoint)]:
+            return request
         else:
-            # Here we would make a request to our actual origin server
-            self.socket.connect((self.origin_host, self.origin_port))
-            # Check if last_modified corresponds to actual last time it was modified
-            self.socket.send(self.files[filepath].last_modified)
-            return
+            request+="\r\nIf-Modified-Since: %s" % self.files[(http_method, endpoint)].last_modified
+            return request
+        
+    def cache_file(self, response, http_method, endpoint):
+        response_body = response.split("\r\n\r\n")
+        new_file = Cached_File
+        new_file.content = response_body[1]
+        new_file.last_modified = "" # Get from last_modified header sent from origin server
+        self.files[(http_method, endpoint)] = new_file # idk if you can actually do this
         
 def main():
     PROXY_PORT = 3000

@@ -21,12 +21,6 @@ class Route:
     endpoint: str
     handler: Callable[..., None]
 
-
-@dataclass
-class Cached_File:
-    content: str
-    last_modified: str
-
 class Server:
     def __init__(self):
         self.routes = []
