@@ -1,14 +1,13 @@
-import socket
 import os
+import socket
+import threading
 import time
 from dataclasses import dataclass
-from threading import *
 from typing import Callable
 
 import client
 
-
-HTTP_CODES ={
+HTTP_CODES = {
     200: "OK",
     304: "Not Modified",
     400: "Bad Request",
@@ -16,6 +15,7 @@ HTTP_CODES ={
     404: "Not Found",
     500: "Internal Server Error",
 }
+
 
 @dataclass
 class Route:
@@ -29,52 +29,57 @@ class Cached_File:
     content: str
     last_modified: str
 
+
 class Server:
     def __init__(self):
         self.routes = []
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
+    def handle_connection(self, connection):
+        with connection:
+            request = self.read_request(connection)
+
+            request_headers_list, request_headers_dict = self.__parse_request(request)
+            http_method, endpoint = self.__parse_http_method(request_headers_list[0])
+            print("Headers: \n%s\n" % request_headers_dict)
+            if not http_method and not endpoint:
+                connection.close()
+                return
+            print("Method: %s\nEndpoint: %s\n" % (http_method, endpoint))
+
+            # Check for matching endpoints
+            matchedEndpoints = list(
+                filter(
+                    lambda x: x.endpoint == endpoint,
+                    self.routes,
+                )
+            )
+            if len(matchedEndpoints) == 0:
+                response = self.generate_response(404)
+                connection.send(response)
+                return
+
+            # Check for matching routes
+            matchedRoutes = list(
+                filter(
+                    lambda x: x.endpoint == endpoint and x.method == http_method,
+                    matchedEndpoints,
+                )
+            )
+            if len(matchedRoutes) == 0:
+                response = self.generate_response(400)
+                connection.send(response)
+            else:
+                matchedRoute = matchedRoutes[0]
+                matchedRoute.handler(connection, request_headers_dict)
+
     def listen(self, host, port, num_connections):
         self.socket.bind((host, port))
         self.socket.listen(num_connections)
         while True:
-            connection, addr = self.socket.accept()
-            with connection:
-                request = self.read_request(connection)
-
-                request_headers_list, request_headers_dict = self.__parse_request(request)
-                http_method, endpoint = self.__parse_http_method(request_headers_list[0])
-                print("Headers: \n%s\n" % request_headers_dict)
-                if not http_method and not endpoint:
-                    connection.close()
-                    continue
-                print("Method: %s\nEndpoint: %s\n" % (http_method, endpoint))
-
-                # Check for matching endpoints
-                matchedEndpoints = list(
-                    filter(
-                        lambda x: x.endpoint == endpoint,
-                        self.routes,
-                    )
-                )  
-                if len(matchedEndpoints) == 0:
-                    response = self.generate_response(404)
-                    connection.send(response)
-                    continue
-
-                # Check for matching routes
-                matchedRoutes = list(
-                    filter(
-                        lambda x: x.endpoint == endpoint and x.method == http_method,
-                        matchedEndpoints,
-                    )
-                )
-                if len(matchedRoutes) == 0:
-                    response = self.generate_response(400)
-                    connection.send(response)
-                else:
-                    matchedRoute = matchedRoutes[0]
-                    matchedRoute.handler(connection, request_headers_dict)
+            connection, _ = self.socket.accept()
+            thread = threading.Thread(target=self.handle_connection, args=(connection,))
+            thread.start()
 
     def read_request(self, connection):
         # Request
@@ -87,14 +92,14 @@ class Server:
         request = "".join(chunks)
         print("Client send:\n%s" % request)
         return request
-    
+
     def add_route(self, method, endpoint: str, callback):
         if endpoint[-1] == "/":
             endpoint = endpoint[:-1]
         self.routes.append(Route(method, endpoint, callback))
-    
+
     def open_file(self, filepath):
-        last_m= os.path.getmtime(filepath)
+        last_m = os.path.getmtime(filepath)
         last_modified = time.ctime(last_m)
 
         file = open(filepath, "r")
@@ -104,18 +109,20 @@ class Server:
         print("last modifieed %f %s" % (last_m, last_modified))
 
         return readfile, last_modified
-    
+
     def check_modified_header(self, cache_last_modified, filepath):
         last_m = os.path.getmtime(filepath)
         last_modified = time.ctime(last_m)
         # Compare datetimes
         return time.strptime(last_modified) > time.strptime(cache_last_modified)
-    
-    def generate_response(self, code, content="", additional_headers={"Content-Type": "text/html"}):
+
+    def generate_response(
+        self, code, content="", additional_headers={"Content-Type": "text/html"}
+    ):
         if not HTTP_CODES[code]:
             code = 500
-            content=""
-            additional_headers={"Content-Type": "text/html"}
+            content = ""
+            additional_headers = {"Content-Type": "text/html"}
         response = "HTTP/1.1 %d %s\n" % (code, HTTP_CODES[code])
         for key in additional_headers:
             response += "%s: %s\r\n" % (key, additional_headers[key])
@@ -134,7 +141,6 @@ class Server:
             return [], {}
         return request_headers, self.__parse_headers(request_headers)
 
-
     # Params: headers list[string]
     # Returns: parsed_headers dict
     # Splits header lines
@@ -145,7 +151,6 @@ class Server:
             if len(parsed_header) == 2:
                 parsed_headers[parsed_header[0]] = parsed_header[1]
         return parsed_headers
-
 
     # Params: http_req string
     # Returns: http_method string, endpoint string
@@ -163,6 +168,7 @@ class Server:
         if endpoint[-1] == "/":
             endpoint = endpoint[:-1]
         return http_method, endpoint
+
 
 class Proxy_Server(Server):
     def __init__(self):
@@ -191,6 +197,7 @@ class Proxy_Server(Server):
             self.socket.send(self.files[filepath].last_modified)
             return
 
+
 def main_2():
     PROXY_PORT = 3000
     PROXY_HOST = "localhost"
@@ -203,6 +210,7 @@ def main_2():
     # Start origin
     proxy_server.start_origin_server(ORIGIN_HOST, ORIGIN_PORT, 5)
 
+
 def main():
     PORT = 8000
     HOST = "localhost"
@@ -213,11 +221,15 @@ def main():
     def index(con, headers):
         file, last_modified = server.open_file("test.html")
         # Compare when file was last modified to the if-modified-since header
-        if "If-Modified-Since" in headers and time.strptime(headers["If-Modified-Since"]) >= time.strptime(last_modified):
+        if "If-Modified-Since" in headers and time.strptime(
+            headers["If-Modified-Since"]
+        ) >= time.strptime(last_modified):
             con.sendall("HTTP/1.1 304 Not Modified\n\r\n\r".encode())
         else:
             # Set the Last-Modified response header to get the If-Modified-Since request header back
-            resp_header = "HTTP/1.1 200 OK\nLast-Modified: %s \n\r\n\rHome Page" % last_modified
+            resp_header = (
+                "HTTP/1.1 200 OK\nLast-Modified: %s \n\r\n\rHome Page" % last_modified
+            )
             con.sendall(resp_header.encode())
 
     def index_post(con, headers):
